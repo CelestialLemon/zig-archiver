@@ -1,50 +1,64 @@
+// imports
 const std = @import("std");
+const compress = @import("./compress.zig");
+const file = @import("./file.zig");
+const str = @import("./str.zig");
+
+// alias
 const ArrayList = std.ArrayList;
 const print = std.debug.print;
+const Dir = std.fs.Dir;
 const page_allocator = std.heap.page_allocator;
-
-fn decompress_and_print(input: []u8) !void {
-    var input_stream = std.io.fixedBufferStream(input);
-
-    var output = ArrayList(u8).init(page_allocator);
-    defer output.deinit();
-
-    try std.compress.flate.decompress(input_stream.reader(), output.writer());
-}
-
-fn compress_data(input: []u8) ![]u8 {
-    var input_stream = std.io.fixedBufferStream(input);
-
-    var output = ArrayList(u8).init(page_allocator);
-
-    try std.compress.zlib.compress(input_stream.reader(), output.writer(), .{ .level = std.compress.flate.deflate.Level.default });
-
-    return output.items;
-}
+const mem = std.mem;
 
 pub fn main() !void {
-    // const data = "Hello world this is our input string\n";
-    // var output = ArrayList(u8).init(std.heap.page_allocator);
-    // defer output.deinit();
+    // try app();
 
-    // var input_stream = std.io.fixedBufferStream(data);
+    const result = try compress.createCompressionData("");
 
-    // try std.compress.zlib.compress(input_stream.reader(), output.writer(), .{ .level = std.compress.flate.deflate.Level.fast });
+    var i: u32 = 0;
+    var totalSize: u64 = 0;
+    while (i < result.len) : (i = i + 1) {
+        const entry = result[i];
+        totalSize = totalSize + entry.path.len + entry.hash.len + entry.data.len;
+    }
 
-    // print("Result: {s}\n", .{output.items});
+    print("Total Size: {d}\n", .{ totalSize });
+}
 
-    const input_file_handle = try std.fs.cwd().openFile("res/test.txt", .{});
-    const file_size = (try input_file_handle.stat()).size;
+pub fn app() !void {
+const cli_args = try std.process.argsAlloc(page_allocator);
 
-    const buffer = try page_allocator.alloc(u8, file_size);
-    _ = try input_file_handle.read(buffer);
+    const operation = cli_args[1];
+    const input_file_path = cli_args[2];
+    const output_file_path = cli_args[3];
+    
+    if (
+        !str.strcmp(operation, @constCast("compress")) and
+        !str.strcmp(operation, @constCast("decompress"))
+        ) 
+    {
+        print("Incorrect arg 1", .{});
+        return;   
+    }
 
-    var output = ArrayList(u8).init(page_allocator);
-    defer output.deinit();
+    const input_file_data = try file.readFile(input_file_path);
 
-    var input_stream = std.io.fixedBufferStream(buffer);
+    var output_data: ?[]u8 = null;
 
-    try std.compress.flate.compress(input_stream.reader(), output.writer(), .{ .level = std.compress.flate.deflate.Level.best });
+    if (mem.eql(u8, operation, "compress")) {
+        output_data = try compress.compress_data(input_file_data);
+    }
+    else if (mem.eql(u8, operation, "decompress")) {
+        output_data = try compress.decompress_data(input_file_data);
+    }
+    else {
+        return error.IncorrectArgs;
+    }
 
-    try decompress_and_print(output.items);
+
+    if (output_data) | data | {
+        try file.writeFile(output_file_path, data);
+    }
+
 }
