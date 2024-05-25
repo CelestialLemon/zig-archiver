@@ -21,11 +21,21 @@ pub fn intToBytes(comptime T: type, val: T) ![]u8 {
     return bytes;
 }
 
-pub fn bytesToInt(bytes: []u8) !u32 {
-    print("{any}", .{bytes});
-    var sum: u32 = 0;
+pub fn bytesToInt(comptime T: type, bytes: []u8) !T {
+    var sum: T = 0;
     for (0..bytes.len) | i | {
-        sum += bytes[i] * std.math.pow(u32, 256, @intCast(i));
+        sum += bytes[i] * std.math.pow(T, 256, @intCast(i));
     }
     return sum;
+}
+
+pub fn readNBytes(reader: anytype, num_of_bytes: usize) ![]u8 {
+    const buffer = try page_allocator.alloc(u8, num_of_bytes);
+
+    var i: usize = 0;
+    while (i < num_of_bytes) : (i += 1) {
+        buffer[i] = try reader.readByte();
+    }
+
+    return buffer;
 }
