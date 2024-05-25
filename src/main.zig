@@ -18,11 +18,21 @@ pub fn main() !void {
     const result = try compress.createCompressionData(@constCast("res"));
     const packedData = try compress.packCompressionData(result);
 
-    print("{d}\n", .{packedData.len});
+    for (result) | entry | {
+        print("Entry [ path: {s}, hash: {s}, data.len: {d} ]\n", .{entry.path, entry.hash, entry.data.len});
+    }
+
+    const unpackedData = try compress.unpackCompressionData(packedData);
+
+    for (unpackedData) | entry | {
+        print("Entry [ path: {s}, hash: {s}, data.len: {d} ]\n", .{entry.path, entry.hash, entry.data.len});
+    }
+    // file.writeFile("res\\result.zar", packedData);
+
 }
 
 pub fn app() !void {
-const cli_args = try std.process.argsAlloc(page_allocator);
+    const cli_args = try std.process.argsAlloc(page_allocator);
 
     const operation = cli_args[1];
     const input_file_path = cli_args[2];
@@ -42,10 +52,10 @@ const cli_args = try std.process.argsAlloc(page_allocator);
     var output_data: ?[]u8 = null;
 
     if (mem.eql(u8, operation, "compress")) {
-        output_data = try compress.compress_data(input_file_data);
+        output_data = try compress.compressRawData(input_file_data);
     }
     else if (mem.eql(u8, operation, "decompress")) {
-        output_data = try compress.decompress_data(input_file_data);
+        output_data = try compress.decompressData(input_file_data);
     }
     else {
         return error.IncorrectArgs;

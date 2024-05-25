@@ -2,6 +2,7 @@
 const std = @import("std");
 const file = @import("./file.zig");
 const utils = @import("./utils.zig");
+const str = @import("./str.zig");
 
 // alias
 const print = std.debug.print;
@@ -13,31 +14,44 @@ const mem = std.mem;
 
 // data types
 const FileCompressionData = struct {
+    // relative path to the file
     path: []u8,
+    // hash of the file contents
     hash: []u8,
+    // compressed data of the file
     data: []u8
 };
 
 pub fn compressRawData(input: []u8) ![]u8 {
+    // create readable stream from input buffer
     var input_stream = std.io.fixedBufferStream(input);
+    // create writable stream for output
     var output = ArrayList(u8).init(page_allocator);
+    defer output.deinit();
 
+    // run compress
     try std.compress.zlib.compress(
         input_stream.reader(), 
         output.writer(), 
         .{ .level = std.compress.flate.deflate.Level.default 
     });
 
-    return output.items;
+    // return result
+    return output.toOwnedSlice();
 }
 
-pub fn decompress_data(input: []u8) ![]u8 {
+pub fn decompressData(input: []u8) ![]u8 {
+    // create readable stream from input buffer
     var input_stream = std.io.fixedBufferStream(input);
+    // create writable stream for output
     var output = ArrayList(u8).init(page_allocator);
+    defer output.deinit();
 
+    // run decompress
     try std.compress.zlib.decompress(input_stream.reader(), output.writer());
 
-    return output.items;
+    // return result
+    return output.toOwnedSlice();
 }
 
 // takes a directory path and creates compression data for all files in it
@@ -62,41 +76,37 @@ pub fn createCompressionData(path: []u8) ![]FileCompressionData {
         if (entry.kind == Dir.Entry.Kind.directory) {
             continue;
         }
-        // we can only work with file and dir kinds
+        // we can only work with file kinds
         if (entry.kind != Dir.Entry.Kind.file) {
             return error.UnknownEntryType;
         }
 
         print("Processing file: {s}\n", .{ entry.path });
 
-        // create filepath
-        const filepath = try mem.concat(
-            page_allocator, 
-            u8, 
-            &[_][]u8{ 
-                path, 
-                @constCast("\\"), 
-                @constCast(entry.path) 
-            }
-        )
-        ;
+        // create the file path by concating the path with entry path ("<path>\<entry.path>")
+        const filepath = try str.strcat(&[_][]u8{ 
+            path, 
+            @constCast("\\"), 
+            @constCast(entry.path) 
+        });
+
         // read data from the file and compress it
         const file_input_data = try file.readFile(filepath);
         const compressed_data = try compressRawData(file_input_data);
 
         // create new data object and allocate required memory for the properties
-        const compressionData = FileCompressionData {
+        const compression_data = FileCompressionData {
             .path = try page_allocator.alloc(u8, entry.path.len),
             .hash = "",
             .data = try page_allocator.alloc(u8, compressed_data.len)
         };
 
         // copy data into the object's properties
-        mem.copyForwards(u8, compressionData.path, entry.path);
-        mem.copyForwards(u8, compressionData.data, compressed_data);
+        mem.copyForwards(u8, compression_data.path, entry.path);
+        mem.copyForwards(u8, compression_data.data, compressed_data);
         
         // add the object to list
-        try result.append(compressionData);
+        try result.append(compression_data);
     }
 
     // create slice from list and return
@@ -123,6 +133,42 @@ pub fn packCompressionData(data: []FileCompressionData) ![]u8 {
         _ = try writer.write(entry.hash); 
         _ = try writer.write(try utils.intToBytes(usize, entry.data.len));
         _ = try writer.write(entry.data); 
+    }
+
+    return result.toOwnedSlice();
+}
+
+pub fn unpackCompressionData(buffer: []u8) ![]FileCompressionData {
+
+    var result = ArrayList(FileCompressionData).init(page_allocator);
+    defer result.deinit();
+    // create a readable stream so we can use a reader
+    var input_stream = std.io.fixedBufferStream(buffer);
+    var reader = input_stream.reader();
+
+    const n_entries = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
+    
+    for (0..n_entries) | _ | {
+        const path_len = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
+        const path = try utils.readNBytes(&reader, path_len);
+
+        const hash_len = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
+        const hash = try utils.readNBytes(&reader, hash_len);
+
+        const data_len = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
+        const data = try utils.readNBytes(&reader, data_len);
+
+        const compression_data = FileCompressionData {
+            .path = try page_allocator.alloc(u8, path_len),
+            .hash = try page_allocator.alloc(u8, hash_len),
+            .data = try page_allocator.alloc(u8, data_len)
+        };
+
+        mem.copyForwards(u8, compression_data.path, path);
+        mem.copyForwards(u8, compression_data.hash, hash);
+        mem.copyForwards(u8, compression_data.data, data);
+
+        try result.append(compression_data);
     }
 
     return result.toOwnedSlice();
