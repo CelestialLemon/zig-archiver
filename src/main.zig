@@ -3,6 +3,7 @@ const std = @import("std");
 const compress = @import("./compress.zig");
 const file = @import("./file.zig");
 const str = @import("./str.zig");
+const utils = @import("./utils.zig");
 
 // alias
 const ArrayList = std.ArrayList;
@@ -14,16 +15,10 @@ const mem = std.mem;
 pub fn main() !void {
     // try app();
 
-    const result = try compress.createCompressionData("");
+    const result = try compress.createCompressionData(@constCast("res"));
+    const packedData = try compress.packCompressionData(result);
 
-    var i: u32 = 0;
-    var totalSize: u64 = 0;
-    while (i < result.len) : (i = i + 1) {
-        const entry = result[i];
-        totalSize = totalSize + entry.path.len + entry.hash.len + entry.data.len;
-    }
-
-    print("Total Size: {d}\n", .{ totalSize });
+    print("{d}\n", .{packedData.len});
 }
 
 pub fn app() !void {

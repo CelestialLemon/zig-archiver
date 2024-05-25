@@ -1,6 +1,7 @@
 // imports
 const std = @import("std");
 const file = @import("./file.zig");
+const utils = @import("./utils.zig");
 
 // alias
 const print = std.debug.print;
@@ -39,6 +40,8 @@ pub fn decompress_data(input: []u8) ![]u8 {
     return output.items;
 }
 
+// takes a directory path and creates compression data for all files in it
+// it includes files present in sub-directories
 pub fn createCompressionData(path: []u8) ![]FileCompressionData {
     // create a list to store result
     var result = ArrayList(FileCompressionData).init(page_allocator);
@@ -66,8 +69,19 @@ pub fn createCompressionData(path: []u8) ![]FileCompressionData {
 
         print("Processing file: {s}\n", .{ entry.path });
 
+        // create filepath
+        const filepath = try mem.concat(
+            page_allocator, 
+            u8, 
+            &[_][]u8{ 
+                path, 
+                @constCast("\\"), 
+                @constCast(entry.path) 
+            }
+        )
+        ;
         // read data from the file and compress it
-        const file_input_data = try file.readFile(@constCast(entry.path));
+        const file_input_data = try file.readFile(filepath);
         const compressed_data = try compressRawData(file_input_data);
 
         // create new data object and allocate required memory for the properties
@@ -87,5 +101,29 @@ pub fn createCompressionData(path: []u8) ![]FileCompressionData {
 
     // create slice from list and return
     // list will be emptied by this function
+    return result.toOwnedSlice();
+}
+
+// creates a packed u8 buffer from the given compression data
+pub fn packCompressionData(data: []FileCompressionData) ![]u8 {
+    // create a list so we can use a writer
+    var result = ArrayList(u8).init(page_allocator);
+    defer result.deinit();
+    const writer = result.writer();
+
+    // write the length of the data array first as bytes
+    _ = try writer.write(try utils.intToBytes(usize, data.len));
+
+    // loop through entries in data
+    for (data) | entry | {
+        // for every entry write the length of the property then the property itself
+        _ = try writer.write(try utils.intToBytes(usize, entry.path.len));
+        _ = try writer.write(entry.path); 
+        _ = try writer.write(try utils.intToBytes(usize, entry.hash.len));
+        _ = try writer.write(entry.hash); 
+        _ = try writer.write(try utils.intToBytes(usize, entry.data.len));
+        _ = try writer.write(entry.data); 
+    }
+
     return result.toOwnedSlice();
 }
