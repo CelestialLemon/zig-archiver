@@ -24,3 +24,15 @@ pub fn writeFile(filepath: []u8, buffer: []u8) !void {
 
     _ = try file_handle.write(buffer);
 }
+
+pub fn getFileDirPath(filepath: []u8) []u8 {
+    var end_index: usize = filepath.len - 1;
+
+    while (end_index >= 1) : (end_index -= 1) {
+        if (filepath[end_index] == '\\') {
+            break;
+        }
+    }
+
+    return filepath[0..end_index];
+}
