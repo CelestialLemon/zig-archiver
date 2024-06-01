@@ -13,7 +13,7 @@ const Dir = std.fs.Dir;
 const mem = std.mem;
 
 // data types
-const FileCompressionData = struct {
+pub const FileCompressionData = struct {
     // relative path to the file
     path: []u8,
     // hash of the file contents
@@ -56,7 +56,7 @@ pub fn decompressData(input: []u8) ![]u8 {
 
 // takes a directory path and creates compression data for all files in it
 // it includes files present in sub-directories
-pub fn createCompressionData(path: []u8) ![]FileCompressionData {
+pub fn createDirCompressionData(path: []u8) ![]FileCompressionData {
     // create a list to store result
     var result = ArrayList(FileCompressionData).init(page_allocator);
     defer result.deinit(); 
@@ -96,13 +96,13 @@ pub fn createCompressionData(path: []u8) ![]FileCompressionData {
 
         // create new data object and allocate required memory for the properties
         const compression_data = FileCompressionData {
-            .path = try page_allocator.alloc(u8, entry.path.len),
+            .path = try page_allocator.alloc(u8, filepath.len),
             .hash = "",
             .data = try page_allocator.alloc(u8, compressed_data.len)
         };
 
         // copy data into the object's properties
-        mem.copyForwards(u8, compression_data.path, entry.path);
+        mem.copyForwards(u8, compression_data.path, filepath);
         mem.copyForwards(u8, compression_data.data, compressed_data);
         
         // add the object to list
@@ -112,6 +112,32 @@ pub fn createCompressionData(path: []u8) ![]FileCompressionData {
     // create slice from list and return
     // list will be emptied by this function
     return result.toOwnedSlice();
+}
+
+pub fn createFileCompressionData(filepath: []u8) ![]FileCompressionData {
+    // read the data and compress it
+    const file_data = try file.readFile(filepath);
+    const compressed_data = try compressRawData((file_data));
+
+    // create entry
+    const compression_data = FileCompressionData {
+        .path = try page_allocator.alloc(u8, filepath.len),
+        .hash = "",
+        .data = try page_allocator.alloc(u8, compressed_data.len)
+    };
+
+    // copy data into the object's properties
+    mem.copyForwards(u8, compression_data.path, filepath);
+    mem.copyForwards(u8, compression_data.data, compressed_data);
+
+    // create list and append the entry
+    var list = ArrayList(FileCompressionData).init(page_allocator);
+    defer list.deinit();
+
+    try list.append(compression_data);
+
+    // return slice
+    return list.toOwnedSlice();
 }
 
 // creates a packed u8 buffer from the given compression data
@@ -139,16 +165,22 @@ pub fn packCompressionData(data: []FileCompressionData) ![]u8 {
 }
 
 pub fn unpackCompressionData(buffer: []u8) ![]FileCompressionData {
-
+    // create outuput list
     var result = ArrayList(FileCompressionData).init(page_allocator);
     defer result.deinit();
+
     // create a readable stream so we can use a reader
     var input_stream = std.io.fixedBufferStream(buffer);
     var reader = input_stream.reader();
 
+    // read first 8 bytes of the buffer which represent the number of entries 
     const n_entries = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
     
+    // loop n_entries times
     for (0..n_entries) | _ | {
+        // for each property we store its length first so read that as a usize
+        // then read the property itself by reading the length num of bytes
+
         const path_len = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
         const path = try utils.readNBytes(&reader, path_len);
 
@@ -158,18 +190,22 @@ pub fn unpackCompressionData(buffer: []u8) ![]FileCompressionData {
         const data_len = try utils.bytesToInt(usize, try utils.readNBytes(&reader, 8));
         const data = try utils.readNBytes(&reader, data_len);
 
+        // initialize compression data object with required buffers
         const compression_data = FileCompressionData {
             .path = try page_allocator.alloc(u8, path_len),
             .hash = try page_allocator.alloc(u8, hash_len),
             .data = try page_allocator.alloc(u8, data_len)
         };
 
+        // copy the data unpacked into the object
         mem.copyForwards(u8, compression_data.path, path);
         mem.copyForwards(u8, compression_data.hash, hash);
         mem.copyForwards(u8, compression_data.data, data);
 
+        // add object to list
         try result.append(compression_data);
     }
 
+    // return resulting slice
     return result.toOwnedSlice();
 }
