@@ -13,30 +13,16 @@ const page_allocator = std.heap.page_allocator;
 const mem = std.mem;
 
 pub fn main() !void {
-    // try app();
-
-    const result = try compress.createCompressionData(@constCast("res"));
-    const packedData = try compress.packCompressionData(result);
-
-    for (result) | entry | {
-        print("Entry [ path: {s}, hash: {s}, data.len: {d} ]\n", .{entry.path, entry.hash, entry.data.len});
-    }
-
-    const unpackedData = try compress.unpackCompressionData(packedData);
-
-    for (unpackedData) | entry | {
-        print("Entry [ path: {s}, hash: {s}, data.len: {d} ]\n", .{entry.path, entry.hash, entry.data.len});
-    }
-    // file.writeFile("res\\result.zar", packedData);
-
+    try app();
 }
 
 pub fn app() !void {
     const cli_args = try std.process.argsAlloc(page_allocator);
 
     const operation = cli_args[1];
-    const input_file_path = cli_args[2];
-    const output_file_path = cli_args[3];
+    const entry_type = cli_args[2];
+    const input_path = cli_args[3];
+    const output_path = cli_args[4];
     
     if (
         !str.strcmp(operation, @constCast("compress")) and
@@ -47,23 +33,41 @@ pub fn app() !void {
         return;   
     }
 
-    const input_file_data = try file.readFile(input_file_path);
+    if (str.strcmp(operation, @constCast("compress"))) {
+        var compression_data: ?[]compress.FileCompressionData = null;
+        if (str.strcmp(entry_type, @constCast("file"))) {
+            compression_data = try compress.createFileCompressionData(input_path);
+        }
+        else if (str.strcmp(entry_type, @constCast("dir"))) {
+            compression_data = try compress.createDirCompressionData(input_path);
+        }
+        else {
+            return error.IncorrectArgs;
+        }
 
-    var output_data: ?[]u8 = null;
+        if (compression_data) | data | {
+            const packed_data = try compress.packCompressionData(data);
+            try file.writeFile(output_path, packed_data);
+        }
 
-    if (mem.eql(u8, operation, "compress")) {
-        output_data = try compress.compressRawData(input_file_data);
     }
-    else if (mem.eql(u8, operation, "decompress")) {
-        output_data = try compress.decompressData(input_file_data);
+    else if (str.strcmp(operation, @constCast("decompress"))) {
+        const file_data = try file.readFile(input_path);
+        const unpacked_data = try compress.unpackCompressionData(file_data);
+
+        for (unpacked_data) | entry | {
+            const dir_path = file.getFileDirPath(entry.path);
+
+            if (dir_path.len > 0) {
+                try std.fs.cwd().makePath(dir_path);
+            }
+
+            const decompressed_data = try compress.decompressData(entry.data);
+            try file.writeFile(entry.path, decompressed_data);
+        }
     }
     else {
         return error.IncorrectArgs;
-    }
-
-
-    if (output_data) | data | {
-        try file.writeFile(output_file_path, data);
     }
 
 }
